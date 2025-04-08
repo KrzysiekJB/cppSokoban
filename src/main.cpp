@@ -3,6 +3,8 @@
 #include <fstream>
 #include <termios.h>
 #include <unistd.h>
+#include <string>
+
 using namespace std;
 
 // Klasa Tile
@@ -24,55 +26,87 @@ class Board {
 
     public:
         // Ładowanie poziomu z pliku
-        void loadLevel(const string &filename){
+        void loadLevel(const string &filename, int levelNumber) {
             ifstream file(filename);
-            if (!file.is_open()){
-                cerr << "Nie mona otwoyć pliku: " << filename << endl;
+            if (!file.is_open()) {
+                cerr << "Nie można otworzyć pliku: " << filename << endl;
                 return;
             }
-
+        
             grid.clear();
             string line;
-            int y = 0;
-            while (getline(file, line)){
-                vector<Tile> row;
-                for (int x = 0; x < line.size(); ++x){
-                    char c = line[x];
-                    switch (c) {
-                        case '#': 
-                            row.push_back(Tile(Wall)); 
-                            break;
-                        case '.': 
-                            row.push_back(Tile(Free)); 
-                            break;
-                        case 'G': 
-                            row.push_back(Tile(Goal)); 
-                            break;
-                        case 'B': 
-                            row.push_back(Tile(Box)); 
-                            break;
-                        case 'P': 
-                            row.push_back(Tile(Player)); 
-                            playerX = x; 
-                            playerY = y; 
-                            break;
-                        case 'O': // Gracz na polu celu
-                            row.push_back(Tile(PlayerOnGoal));
-                            playerX = x; 
-                            playerY = y; 
-                            break;
-                        case 'X': // Skrzynia na polu celu
-                            row.push_back(Tile(BoxOnGoal)); 
-                            break;
-                        default: 
-                            row.push_back(Tile(Free)); 
-                            break;
-                    }
+            bool isCurrentLevel = false;
+            int maxRowLength = 0; // Maksymalna długość wiersza dla danego poziomu
+        
+            vector<vector<Tile>> tempGrid; // Tymczasowa plansza
+        
+            while (getline(file, line)) {
+                // Ignoruj komentarze i sekcje inne niż poziomy
+                if (line.size() > 0 && line[0] == ';' && !(line.size() >= 6 && line.compare(0, 6, ";LEVEL") == 0)) {
+                    continue;
                 }
-                grid.push_back(row);
-                ++y;
-            }            
+        
+                // Sprawdź, czy linia oznacza początek poziomu
+                if (line.size() >= 6 && line.compare(0, 6, ";LEVEL") == 0) {
+                    int currentLevel = stoi(line.substr(7)); // Pobierz numer poziomu
+                    isCurrentLevel = (currentLevel == levelNumber);
+                    continue;
+                }
+        
+                // Jeśli napotkano separator "---", zakończ odczyt bieżącego poziomu
+                if (line == "---") {
+                    isCurrentLevel = false;
+                    continue;
+                }
+        
+                // Jeśli jesteśmy w odpowiednim poziomie, odczytaj jego dane
+                if (isCurrentLevel && !line.empty() && line[0] != ';') {
+                    vector<Tile> row;
+                    for (int x = 0; x < line.size(); ++x) {
+                        char c = line[x];
+                        switch (c) {
+                            case '#': 
+                                row.push_back(Tile(Wall)); 
+                                break;
+                            case ' ': 
+                                row.push_back(Tile(Free)); 
+                                break;
+                            case '.': 
+                                row.push_back(Tile(Goal)); 
+                                break;
+                            case '$': 
+                                row.push_back(Tile(Box)); 
+                                break;
+                            case '@': 
+                                row.push_back(Tile(Player)); 
+                                playerX = x; 
+                                playerY = tempGrid.size(); // Pozycja gracza
+                                break;
+                            default: 
+                                row.push_back(Tile(Free)); 
+                                break;
+                        }
+                    }
+                    maxRowLength = max(maxRowLength, static_cast<int>(row.size())); // Aktualizuj maksymalną długość wiersza
+                    tempGrid.push_back(row);
+                }
+            }
+        
+            file.close();
+        
+            // Uzupełnij krótsze wiersze pustymi polami (`Free`)
+            for (auto &row : tempGrid) {
+                while (row.size() < maxRowLength) {
+                    row.push_back(Tile(Free));
+                }
+            }
+        
+            grid = tempGrid; // Przenieś tymczasową planszę do właściwej
         }
+        
+        
+        
+        
 
         // Rysowanie planszy w konsoli
         void drawBoard() {
@@ -80,12 +114,12 @@ class Board {
                 for (int x = 0; x < grid[y].size(); ++x) {
                     switch (grid[y][x].type){
                         case Wall: cout << "#"; break;
-                        case Free: cout << "."; break;
-                        case Goal: cout << "G"; break;
-                        case Box: cout << "B"; break;
-                        case Player: cout << "P"; break;
-                        case PlayerOnGoal: cout << "O"; break; // Gracz na celu
-                        case BoxOnGoal: cout << "X"; break;   // Skrzynia na celu
+                        case Free: cout << " "; break;
+                        case Goal: cout << "."; break;
+                        case Box: cout << "$"; break;
+                        case Player: cout << "@"; break;
+                        case PlayerOnGoal: cout << "!"; break; // Gracz na celu
+                        case BoxOnGoal: cout << "&"; break;   // Skrzynia na celu
                     }
                 }
                 cout << endl;
@@ -132,13 +166,14 @@ class Board {
             for (int y = 0; y < grid.size(); ++y) {
                 for (int x = 0; x < grid[y].size(); ++x) {
                     // Sprawdź, czy istnieje pole celu, które nie jest zajęte przez skrzynię
-                    if (grid[y][x].type == Goal) {
-                        return false; // Pole celu nie jest zajęte - gra jeszcze trwa
+                    if (grid[y][x].type == Goal || grid[y][x].type == PlayerOnGoal) {
+                        return false; // Pole celu nie jest zajęte przez skrzynię - gra jeszcze trwa
                     }
                 }
             }
             return true; // Wszystkie pola celu są zajęte przez skrzynie
         }
+        
         
         
 
@@ -180,12 +215,7 @@ class Board {
         
             playerX = newX;
             playerY = newY;
-
-            // Sprawdź warunek zakończenia gry
-            if (isGameWon()) {
-                cout << "Gratulacje! Ukończyłeś poziom!" << endl;
-                exit(0); // Zakończ program
-            }
+            
         }
             
 
@@ -213,12 +243,17 @@ class Board {
 class Game{
     private:
         Board board;
+        int currentLevel; // Numer aktualnego poziomu
+        int maxLevels;    // Maksymalna liczba poziomów
 
     public:
-        void initializeGame(const string &levelFile) {
-            board.loadLevel(levelFile);
-        }
+        Game() : currentLevel(1), maxLevels(88) {} // Domyślnie zaczynamy od poziomu 1, zakładam 88 poziomw
 
+        void initializeGame(const string &filename, int levelNumber) {
+            currentLevel = levelNumber; // Ustaw aktualny poziom
+            board.loadLevel(filename, levelNumber);
+        }
+    
         // Funkcja do przełączenia terminala w tryb raw mode
         void enableRawMode() {
             termios term;
@@ -257,7 +292,7 @@ class Game{
             return c; // Zwróć inny znak (np. q do wyjścia)
         }
 
-        void processInput() {
+        void processInput(const string &filename) {
             char input = getArrowKey(); // Odczytaj strzałkę
     
             switch (input) {
@@ -273,34 +308,51 @@ class Game{
                     cout << "Nieznany ruch!" << endl; 
                     break;
             }
+
+            // Sprawdź warunek zakończenia gry po każdym ruchu
+            checkWinCondition(filename);
+        }
+
+        void checkWinCondition(const string &filename) {
+            if (board.isGameWon()) {
+                cout << "Gratulacje! Ukończyłeś poziom " << currentLevel << "!" << endl;
+        
+                if (currentLevel < maxLevels) {
+                    ++currentLevel; // Przejdź do następnego poziomu
+                    board.loadLevel(filename, currentLevel); // Załaduj kolejny poziom
+                    cout << "Załadowano poziom " << currentLevel << "." << endl;
+                } else {
+                    cout << "Gratulacje! Ukończyłeś wszystkie poziomy!" << endl;
+                    exit(0); // Zakończ program po ukończeniu wszystkich poziomów
+                }
+            }
+        }
+        
+        // Funkcja wyświetlająca menu i umożliwiająca wybór planszy
+        int displayMenu() {
+            cout << "========== MENU ==========" << endl;
+            cout << "1. Poziom 1" << endl;
+            cout << "2. Poziom 2" << endl;
+            cout << "3. Poziom 3" << endl;
+            cout << "....." << endl;
+            cout << "88. Poziom 88" << endl;
+            cout << "==========================" << endl;
+            cout << "Wybierz poziom (1-88): ";
+        
+            int choice;
+            cin >> choice;
+        
+            if (choice < 0 || choice > 88) {
+                cout << "Nieprawidłowy wybór! Domyślnie ładowany poziom 1." << endl;
+                return 1; // Domyślnie poziom 1
+            }
+        
+            return choice; // Zwróć numer wybranego poziomu
         }
 
         void draw() {
             board.drawBoard();
         }
-
-        // Funkcja wyświetlająca menu i umożliwiająca wybór planszy
-    string displayMenu() {
-        cout << "========== MENU ==========" << endl;
-        cout << "1. Poziom 1 (level1.txt)" << endl;
-        cout << "2. Poziom 2 (level2.txt)" << endl;
-        cout << "3. Poziom 3 (level3.txt)" << endl;
-        cout << "==========================" << endl;
-        cout << "Wybierz poziom (1-3): ";
-
-        int choice;
-        cin >> choice;
-
-        // Mapowanie wyboru na nazwę pliku
-        switch (choice) {
-            case 1: return "../levels/level1.txt";
-            case 2: return "../levels/level2.txt";
-            case 3: return "../levels/level3.txt";
-            default:
-                cout << "Nieprawidłowy wybór! Domyślnie ładowany poziom 1." << endl;
-                return "../levels/level1.txt";
-        }
-    }
 
 };
 
@@ -308,13 +360,13 @@ class Game{
 int main() {
     Game game;
 
-    // Wyświetlenie menu i wybór planszy
-    string levelFile = game.displayMenu();
+    // Wyświetlenie menu i wybór numeru poziomu
+    int levelNumber = game.displayMenu();
 
     game.enableRawMode(); // Włącz tryb raw mode terminala
 
     // Inicjalizacja gry z wybranego pliku poziomu
-    game.initializeGame(levelFile);
+    game.initializeGame("levels.txt", levelNumber);
 
     char input;
     while (true) {
@@ -322,7 +374,7 @@ int main() {
         game.draw();
 
         // Obsługa ruchu gracza
-        game.processInput();
+        game.processInput("levels.txt");
 
         // Opcjonalnie: warunek zakończenia gry (np. wszystkie skrzynie na celach)
         // Na razie brak implementacji warunku wygranej.
